@@ -1,0 +1,16 @@
+# Dependencies and build output (any sub-project)
+node_modules/
+dist/
+build/
+coverage/
+
+# Secrets — only .env.example is ever committed
+.env
+.env.local
+.env.*.local
+
+# Runtime state
+.data/
+*.log
+
+.DS_Store

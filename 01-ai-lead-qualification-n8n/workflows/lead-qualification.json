@@ -1,0 +1,469 @@
+{
+  "name": "AI Lead Qualification & Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Lead webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        300
+      ],
+      "webhookId": "a1000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LEAD_SERVICE_URL }}/v1/qualify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.LEAD_SERVICE_SECRET }}"
+            },
+            {
+              "name": "x-request-id",
+              "value": "={{ $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Qualify lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "contact",
+        "operation": "upsert",
+        "email": "={{ $json.lead.email }}",
+        "additionalFields": {
+          "firstName": "={{ $json.lead.name.split(' ')[0] }}",
+          "lastName": "={{ $json.lead.name.split(' ').slice(1).join(' ') }}",
+          "companyName": "={{ $json.lead.company || '' }}",
+          "leadStatus": "={{ $json.qualification.classification === 'COLD' ? 'UNQUALIFIED' : 'OPEN' }}"
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Upsert HubSpot contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [
+        200,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "REPLACE_ME",
+          "name": "HubSpot Private App"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-hot",
+                    "leftValue": "={{ $('Qualify lead').item.json.qualification.classification }}",
+                    "rightValue": "HOT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "HOT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-warm",
+                    "leftValue": "={{ $('Qualify lead').item.json.qualification.classification }}",
+                    "rightValue": "WARM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WARM"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-cold",
+                    "leftValue": "={{ $('Qualify lead').item.json.qualification.classification }}",
+                    "rightValue": "COLD",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "COLD"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Route by classification",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        420,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "deal",
+        "operation": "create",
+        "stage": "={{ $env.HUBSPOT_DEAL_STAGE_HOT || 'appointmentscheduled' }}",
+        "additionalFields": {
+          "dealName": "={{ ($('Qualify lead').item.json.lead.company || $('Qualify lead').item.json.lead.name) + ' — inbound (HOT)' }}",
+          "amount": "={{ $('Qualify lead').item.json.qualification.estimated_value }}",
+          "associatedVids": "={{ [$json.id] }}"
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Create deal (HOT)",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [
+        660,
+        40
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "REPLACE_ME",
+          "name": "HubSpot Private App"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.SLACK_SALES_CHANNEL }}",
+          "mode": "name"
+        },
+        "text": "={{ '🔥 HOT lead — ' + $('Qualify lead').item.json.lead.name + ' (' + ($('Qualify lead').item.json.lead.company || 'no company') + ')\\nScore: ' + $('Qualify lead').item.json.qualification.score + '/100 · Est. €' + $('Qualify lead').item.json.qualification.estimated_value + '\\nWhy: ' + $('Qualify lead').item.json.qualification.reason + '\\n\\nSuggested reply (draft — review before sending):\\n' + ($('Qualify lead').item.json.suggested_reply || 'none') }}",
+        "otherOptions": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Alert sales (HOT)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        40
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "deal",
+        "operation": "create",
+        "stage": "={{ $env.HUBSPOT_DEAL_STAGE_WARM || 'qualifiedtobuy' }}",
+        "additionalFields": {
+          "dealName": "={{ ($('Qualify lead').item.json.lead.company || $('Qualify lead').item.json.lead.name) + ' — inbound (WARM)' }}",
+          "amount": "={{ $('Qualify lead').item.json.qualification.estimated_value }}",
+          "associatedVids": "={{ [$json.id] }}"
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Create deal (WARM)",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [
+        660,
+        220
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "REPLACE_ME",
+          "name": "HubSpot Private App"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.SLACK_MARKETING_CHANNEL }}",
+          "mode": "name"
+        },
+        "text": "={{ '🌤️ WARM lead queued for nurture — ' + $('Qualify lead').item.json.lead.name + ' · score ' + $('Qualify lead').item.json.qualification.score + '/100' }}",
+        "otherOptions": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Queue nurture (WARM)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "Archive (COLD)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        660,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', classification: $('Qualify lead').item.json.qualification.classification, score: $('Qualify lead').item.json.qualification.score, next_action: $('Qualify lead').item.json.qualification.next_action, correlation_id: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-00000000000a",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 502,
+        "responseBody": "={{ JSON.stringify({ status: 'failed', message: 'Lead qualification service unavailable', correlation_id: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-00000000000b",
+      "name": "Respond error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Lead webhook": {
+      "main": [
+        [
+          {
+            "node": "Qualify lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify lead": {
+      "main": [
+        [
+          {
+            "node": "Upsert HubSpot contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert HubSpot contact": {
+      "main": [
+        [
+          {
+            "node": "Route by classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by classification": {
+      "main": [
+        [
+          {
+            "node": "Create deal (HOT)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create deal (WARM)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Archive (COLD)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create deal (HOT)": {
+      "main": [
+        [
+          {
+            "node": "Alert sales (HOT)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert sales (HOT)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create deal (WARM)": {
+      "main": [
+        [
+          {
+            "node": "Queue nurture (WARM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue nurture (WARM)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archive (COLD)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "portfolio-ai-integrations"
+  },
+  "tags": []
+}

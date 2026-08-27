@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Lead Qualification — demo run</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #fff; --ink: #1a1a18; --muted: #6b6b66;
+    --line: #e3e3de; --accent: #b5541f;
+    --hot-bg: #fdeee6; --hot-ink: #a8410f; --warm-bg: #fdf5e0; --warm-ink: #8a6512;
+    --cold-bg: #eaeff4; --cold-ink: #3f5a73; --rej-bg: #f2eaea; --rej-ink: #8a3b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e23; --ink: #ececea; --muted: #9a9a94;
+      --line: #33333a; --accent: #e08454;
+      --hot-bg: #3a2015; --hot-ink: #f0a077; --warm-bg: #362c14; --warm-ink: #e0bd72;
+      --cold-bg: #1c2833; --cold-ink: #93b4d0; --rej-bg: #33201f; --rej-ink: #dd9a9a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 4rem; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 1.25rem; margin-bottom: 2rem; }
+  h1 { margin: 0 0 .35rem; font-size: 1.6rem; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: .9rem; }
+  .sub code { background: var(--panel); border: 1px solid var(--line); padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .75rem; margin-bottom: 2rem; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .85rem 1rem; }
+  .tile .n { font-size: 1.7rem; font-weight: 650; line-height: 1.1; letter-spacing: -.02em; }
+  .tile .k { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin-top: .2rem; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th { text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: .8rem 1rem; border-bottom: 1px solid var(--line); font-weight: 600; }
+  td { padding: .9rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .lead-name { font-weight: 600; }
+  .lead-note { color: var(--muted); font-size: .82rem; margin-top: .2rem; max-width: 30ch; }
+  .badge { display: inline-block; padding: .15rem .55rem; border-radius: 99px; font-size: .75rem; font-weight: 650; letter-spacing: .02em; white-space: nowrap; }
+  .HOT { background: var(--hot-bg); color: var(--hot-ink); }
+  .WARM { background: var(--warm-bg); color: var(--warm-ink); }
+  .COLD { background: var(--cold-bg); color: var(--cold-ink); }
+  .REJECTED { background: var(--rej-bg); color: var(--rej-ink); }
+  .score { display: flex; align-items: center; gap: .5rem; }
+  .bar { width: 54px; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+  code.rule { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; color: var(--muted); word-break: break-word; }
+  .flag { display: inline-block; font-size: .7rem; padding: .05rem .4rem; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); margin-top: .3rem; }
+  details { margin-top: 2rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.25rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; overflow-x: auto; font-size: .82rem; line-height: 1.55; margin: .9rem 0 0; }
+  footer { margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI Lead Qualification &amp; Routing</h1>
+    <p class="sub">
+      Demo run · 2026-08-27 19:12:56 UTC ·
+      providers <code>llm=fake</code>
+      <code>crm=fake</code>
+      <code>notifier=fake</code>
+    </p>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">7</div><div class="k">leads in</div></div>
+    <div class="tile"><div class="n">2</div><div class="k">hot</div></div>
+    <div class="tile"><div class="n">2</div><div class="k">warm</div></div>
+    <div class="tile"><div class="n">2</div><div class="k">cold</div></div>
+    <div class="tile"><div class="n">1</div><div class="k">rejected</div></div>
+    <div class="tile"><div class="n">5</div><div class="k">crm contacts</div></div>
+    <div class="tile"><div class="n">3</div><div class="k">crm deals</div></div>
+    <div class="tile"><div class="n">6</div><div class="k">slack alerts</div></div>
+  </div>
+
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Lead</th><th>Class</th><th>Score</th><th>Next action</th>
+        <th>CRM</th><th>Deciding rule</th>
+      </tr></thead>
+      <tbody><tr><td><div class="lead-name">Enterprise SaaS, budget stated</div><div class="lead-note">Textbook HOT: real company, headcount in ICP, budget above the floor, explicit need.</div></td>
+    <td><span class="badge HOT">HOT</span></td>
+    <td><div class="score"><span class="num">100</span><span class="bar"><i style="width:100%"></i></span></div></td>
+    <td>sales call</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact new<br>deal new</td>
+    <td><code class="rule">score_threshold_hot</code> </td></tr><tr><td><div class="lead-name">Small shop, real interest, no budget</div><div class="lead-note">Genuine need but well below ICP headcount — nurture, not a sales call.</div></td>
+    <td><span class="badge WARM">WARM</span></td>
+    <td><div class="score"><span class="num">68</span><span class="bar"><i style="width:68%"></i></span></div></td>
+    <td>nurture sequence</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact new<br>deal new</td>
+    <td><code class="rule">score_threshold_warm</code><span class="flag">rules overrode model</span> </td></tr><tr><td><div class="lead-name">Job enquiry from a free address</div><div class="lead-note">Not a lead at all. Free email, no company, hiring intent.</div></td>
+    <td><span class="badge COLD">COLD</span></td>
+    <td><div class="score"><span class="num">0</span><span class="bar"><i style="width:0%"></i></span></div></td>
+    <td>archive</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact new<br>no deal</td>
+    <td><code class="rule">score_threshold_cold</code> </td></tr><tr><td><div class="lead-name">Great message, budget below the floor</div><div class="lead-note">Scores HOT on the message, but a stated budget under the floor forces a downgrade. The rule overrides the model.</div></td>
+    <td><span class="badge WARM">WARM</span></td>
+    <td><div class="score"><span class="num">77</span><span class="bar"><i style="width:77%"></i></span></div></td>
+    <td>nurture sequence</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact new<br>deal new</td>
+    <td><code class="rule">hot_downgraded_budget_floor</code><span class="flag">rules overrode model</span> </td></tr><tr><td><div class="lead-name">Competitor on the blocklist</div><div class="lead-note">Perfect on paper. Hard-stopped regardless of score.</div></td>
+    <td><span class="badge COLD">COLD</span></td>
+    <td><div class="score"><span class="num">10</span><span class="bar"><i style="width:10%"></i></span></div></td>
+    <td>archive</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact new<br>no deal</td>
+    <td><code class="rule">hard_stop:blocked_email_domain</code><span class="flag">rules overrode model</span> </td></tr><tr><td><div class="lead-name">Duplicate delivery of lead #1 (n8n retry)</div><div class="lead-note">Same lead, different email casing. Must not create a second contact or deal.</div></td>
+    <td><span class="badge HOT">HOT</span></td>
+    <td><div class="score"><span class="num">100</span><span class="bar"><i style="width:100%"></i></span></div></td>
+    <td>sales call</td>
+    <td style="font-size:.82rem;color:var(--muted)">contact existing<br>deal existing</td>
+    <td><code class="rule">score_threshold_hot</code> </td></tr><tr><td><div class="lead-name">Invalid payload (no email)</div><div class="lead-note">Rejected at the validation boundary, before any external call is made.</div></td>
+      <td><span class="badge REJECTED">REJECTED</span></td>
+      <td class="num">—</td><td>—</td><td>—</td>
+      <td><code class="rule">email: Invalid input: expected string, received undefined</code></td></tr></tbody>
+    </table>
+  </div>
+
+  <details>
+    <summary>Suggested reply drafted for “Enterprise SaaS, budget stated” — a draft for a human to review, never sent automatically</summary>
+    <pre>Hi John,
+
+Thanks for reaching out on behalf of Acme Ltd. Strong ICP fit: identified company (Acme Ltd), 120 employees, stated budget of €25,000.
+Would a 30-minute call this week work to walk through your setup?
+
+Best,
+the team</pre>
+  </details><details>
+    <summary>Suggested reply drafted for “Small shop, real interest, no budget” — a draft for a human to review, never sent automatically</summary>
+    <pre>Hi Maria,
+
+Thanks for reaching out on behalf of SmallShop. Strong ICP fit: identified company (SmallShop), 8 employees.
+I can send over a short overview of how teams like yours approach this — useful?
+
+Best,
+the team</pre>
+  </details><details>
+    <summary>Suggested reply drafted for “Great message, budget below the floor” — a draft for a human to review, never sent automatically</summary>
+    <pre>Hi Petar,
+
+Thanks for reaching out on behalf of Startup IO. Strong ICP fit: identified company (Startup IO), 60 employees, stated budget of €1,200.
+I can send over a short overview of how teams like yours approach this — useful?
+
+Best,
+the team</pre>
+  </details><details>
+    <summary>Suggested reply drafted for “Duplicate delivery of lead #1 (n8n retry)” — a draft for a human to review, never sent automatically</summary>
+    <pre>Hi John,
+
+Thanks for reaching out on behalf of Acme Ltd. Strong ICP fit: identified company (Acme Ltd), 120 employees, stated budget of €25,000.
+Would a 30-minute call this week work to walk through your setup?
+
+Best,
+the team</pre>
+  </details>
+
+  <details>
+    <summary>Full decision trace for lead #1 — what the routing layer recorded</summary>
+    <pre>{
+  &quot;llm_score&quot;: 95,
+  &quot;llm_suggested_classification&quot;: &quot;HOT&quot;,
+  &quot;adjustments&quot;: [
+    {
+      &quot;rule&quot;: &quot;high_budget&quot;,
+      &quot;delta&quot;: 10
+    },
+    {
+      &quot;rule&quot;: &quot;enterprise_headcount&quot;,
+      &quot;delta&quot;: 5
+    }
+  ],
+  &quot;applied_rule&quot;: &quot;score_threshold_hot&quot;,
+  &quot;overrode_model&quot;: false,
+  &quot;degraded&quot;: false
+}</pre>
+  </details>
+
+  <footer>
+    Generated by <code>npm run demo</code> from <code>demo/leads.json</code>.
+    Every external system is an offline fake — no API keys, no network, no cost.
+    The routing decisions shown are produced by the same code path that runs in production.
+  </footer>
+</div>
+</body>
+</html>
