@@ -1,0 +1,12 @@
+{
+  "_comment": "USD per 1,000,000 tokens. VERIFY against the provider's pricing page before quoting any figure from this simulation — model prices change and these are a snapshot, not a live feed. Costs are reported in both USD and EUR.",
+  "as_of": "2026-08-27",
+  "source": "https://openai.com/api/pricing/",
+  "usd_per_eur": 1.08,
+  "models": {
+    "gpt-4.1-mini": { "input": 0.4, "output": 1.6 },
+    "gpt-4.1": { "input": 2.0, "output": 8.0 },
+    "gpt-4o-mini": { "input": 0.15, "output": 0.6 },
+    "gpt-4o": { "input": 2.5, "output": 10.0 }
+  }
+}

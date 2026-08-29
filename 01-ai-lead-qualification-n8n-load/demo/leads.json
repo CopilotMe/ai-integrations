@@ -1,0 +1,84 @@
+[
+  {
+    "label": "Enterprise SaaS, budget stated",
+    "note": "Textbook HOT: real company, headcount in ICP, budget above the floor, explicit need.",
+    "payload": {
+      "name": "John Smith",
+      "email": "john.smith@acme.co",
+      "company": "Acme Ltd",
+      "employees": 120,
+      "budget": 25000,
+      "message": "We need to automate customer support. Our current process is manual and we want to start this quarter.",
+      "source": "website_form"
+    }
+  },
+  {
+    "label": "Small shop, real interest, no budget",
+    "note": "Genuine need but well below ICP headcount — nurture, not a sales call.",
+    "payload": {
+      "name": "Maria Petrova",
+      "email": "maria@smallshop.bg",
+      "company": "SmallShop",
+      "employees": 8,
+      "message": "We are looking at automating parts of our online store support and comparing a few options.",
+      "source": "website_form"
+    }
+  },
+  {
+    "label": "Job enquiry from a free address",
+    "note": "Not a lead at all. Free email, no company, hiring intent.",
+    "payload": {
+      "name": "Ivan Ivanov",
+      "email": "ivan.ivanov@gmail.com",
+      "message": "Hi, are you hiring? I am sending my CV for any open vacancy.",
+      "source": "email"
+    }
+  },
+  {
+    "label": "Great message, budget below the floor",
+    "note": "Scores HOT on the message, but a stated budget under the floor forces a downgrade. The rule overrides the model.",
+    "payload": {
+      "name": "Petar Georgiev",
+      "email": "petar@startup.io",
+      "company": "Startup IO",
+      "employees": 60,
+      "budget": 1200,
+      "message": "Urgent: we need to integrate support automation with our platform before the end of the month.",
+      "source": "website_form"
+    }
+  },
+  {
+    "label": "Competitor on the blocklist",
+    "note": "Perfect on paper. Hard-stopped regardless of score.",
+    "payload": {
+      "name": "Sales Team",
+      "email": "sales@competitor.com",
+      "company": "Competitor",
+      "employees": 300,
+      "budget": 50000,
+      "message": "We would like to discuss a partnership and automate our joint support workflow.",
+      "source": "api"
+    }
+  },
+  {
+    "label": "Duplicate delivery of lead #1 (n8n retry)",
+    "note": "Same lead, different email casing. Must not create a second contact or deal.",
+    "payload": {
+      "name": "John Smith",
+      "email": "JOHN.SMITH@acme.co",
+      "company": "Acme Ltd",
+      "employees": 120,
+      "budget": 25000,
+      "message": "We need to automate customer support. Our current process is manual and we want to start this quarter.",
+      "source": "website_form"
+    }
+  },
+  {
+    "label": "Invalid payload (no email)",
+    "note": "Rejected at the validation boundary, before any external call is made.",
+    "payload": {
+      "name": "Anonymous",
+      "message": "Call me"
+    }
+  }
+]

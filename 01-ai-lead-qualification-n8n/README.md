@@ -230,6 +230,14 @@ Scope discipline is part of the exercise. Not here, and why:
   leads. The `/v1/qualify` route is side-effect free specifically so one can be
   bolted on when that data exists.
 
+## How it behaves at 10,000 leads
+
+[`01-ai-lead-qualification-n8n-load`](../01-ai-lead-qualification-n8n-load)
+runs this pipeline unmodified through a queue and worker pool against simulated
+providers, with rate limiting, failure injection, metrics and cost tracking. It
+found that Slack's webhook limit — not the model — is the binding constraint at
+that volume, and that ~$5.64 covers 10,000 leads.
+
 ## Docs
 
 - [`docs/architecture.md`](docs/architecture.md) — sequence diagram, layering, data flow

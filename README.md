@@ -14,6 +14,7 @@ about what happens when a dependency fails.
 | # | Project | Stack | What it demonstrates |
 | --- | --- | --- | --- |
 | 01 | [AI Lead Qualification & Routing](01-ai-lead-qualification-n8n) | n8n · OpenAI · HubSpot · Slack · TypeScript | Structured LLM output, deterministic routing over model opinion, retry/timeout/degradation, idempotent CRM writes, 60 tests |
+| 01b | [Production Load Simulation](01-ai-lead-qualification-n8n-load) | Queue · rate limiting · metrics · cost tracking | The same pipeline at 10,000 leads: bounded queue with backpressure, token-bucket rate limiting, two-layer retries, dead letters, latency percentiles, cost projection. **Found the real bottleneck — and it is not the AI.** 113 tests |
 
 ## How to review any of these in 30 seconds
 
