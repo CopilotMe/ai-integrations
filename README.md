@@ -16,6 +16,7 @@ about what happens when a dependency fails.
 | # | Project | Stack | What it demonstrates |
 | --- | --- | --- | --- |
 | 01 | [AI Lead Qualification & Routing](01-ai-lead-qualification-n8n) | n8n · OpenAI · HubSpot · Slack · TypeScript | Structured LLM output, deterministic routing over model opinion, retry/timeout/degradation, idempotent CRM writes, 60 tests |
+| 03 | [AI CRM Lead Qualification](03-ai-crm-ghl-claude-n8n) | GoHighLevel · Claude · n8n | Claude structured outputs, routing gated on **score *and* confidence** with a one-tier-drop rule, GHL custom fields resolved per sub-account, event-level idempotency claimed before the model call. 30 tests |
 | 02 | [AI Operations Assistant](02-ai-operations-assistant) | Next.js · PostgreSQL · Drizzle · OpenAI · n8n · Slack | The software layer *underneath* the automation: autonomy policy scored on confidence × blast radius, human-in-the-loop approval, append-only audit trail enforced by the database, session auth, operator console. 62 tests |
 | 01b | [Production Load Simulation](01-ai-lead-qualification-n8n-load) | Queue · rate limiting · metrics · cost tracking | The same pipeline at 10,000 leads: bounded queue with backpressure, token-bucket rate limiting, two-layer retries, dead letters, latency percentiles, cost projection. **Found the real bottleneck — and it is not the AI.** 113 tests |
 

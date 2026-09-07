@@ -1,0 +1,382 @@
+{
+  "name": "GoHighLevel lead → Claude qualification → routing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghl/contact",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000001",
+      "name": "GHL contact webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        300
+      ],
+      "webhookId": "c3000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// GoHighLevel sends a different shape for ContactCreate, ContactUpdate and a\n// custom webhook action, and the key names differ between them. Normalising\n// here keeps every GHL-specific quirk in the integration layer, where it\n// belongs, rather than in the service's domain model.\nconst b = $json.body ?? $json;\n\n// The delivery's own id. GHL fires create *and* update for the same contact and\n// retries any non-2xx, so this is what makes a redelivery a no-op downstream.\nconst eventId = b.webhookId ?? b.id ?? `${b.contact_id ?? b.contactId}:${b.dateUpdated ?? b.dateAdded ?? ''}`;\n\n// customFields arrives as an array of {id,value} or as a flat object.\nconst custom = Array.isArray(b.customFields)\n  ? Object.fromEntries(b.customFields.map((f) => [f.key ?? f.id, f.value ?? f.field_value]))\n  : (b.customFields ?? {});\n\nconst inquiry =\n  b.inquiry ?? b.message ?? b.notes ?? custom.inquiry ?? custom.message ?? '';\n\nif (!inquiry) {\n  // Nothing to qualify. Fail loudly here rather than sending the service a\n  // payload it will only reject.\n  throw new Error(`No enquiry text on contact ${b.contact_id ?? b.contactId ?? 'unknown'}`);\n}\n\nreturn [{\n  json: {\n    contact_id: b.contact_id ?? b.contactId ?? b.id,\n    event_id: String(eventId),\n    event_type: b.type === 'ContactUpdate' ? 'ContactUpdate'\n              : b.type === 'ContactCreate' ? 'ContactCreate' : 'Custom',\n    location_id: b.locationId ?? b.location_id,\n    email: (b.email ?? '').trim().toLowerCase(),\n    first_name: b.first_name ?? b.firstName,\n    last_name: b.last_name ?? b.lastName,\n    phone: b.phone,\n    company: b.companyName ?? b.company_name ?? custom.company,\n    lead_source: b.source ?? custom.lead_source,\n    tags: Array.isArray(b.tags) ? b.tags : [],\n    inquiry: String(inquiry).slice(0, 8000),\n    employees: custom.employees ? Number(custom.employees) : undefined,\n    budget_eur: custom.budget_eur ? Number(custom.budget_eur) : undefined,\n    country: b.country,\n  },\n}];"
+      },
+      "id": "c3000000-0000-4000-8000-000000000002",
+      "name": "Normalise GHL payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -60,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.QUALIFY_SERVICE_URL }}/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.QUALIFY_SERVICE_SECRET }}"
+            },
+            {
+              "name": "x-request-id",
+              "value": "={{ $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "c3000000-0000-4000-8000-000000000003",
+      "name": "Qualify lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-sales",
+                    "leftValue": "={{ $('Qualify lead').item.json.decision.route }}",
+                    "rightValue": "sales",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "sales"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-nurture",
+                    "leftValue": "={{ $('Qualify lead').item.json.decision.route }}",
+                    "rightValue": "nurture",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "nurture"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-low",
+                    "leftValue": "={{ $('Qualify lead').item.json.decision.route }}",
+                    "rightValue": "low_priority",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "low_priority"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000004",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.GHL_SALES_CHANNEL }}",
+          "mode": "name"
+        },
+        "text": "={{ '🔥 HOT lead — score ' + $json.decision.lead_score + '/100 (confidence ' + $json.decision.confidence + ')\\n' + $json.decision.reason + '\\nhttps://app.gohighlevel.com/v2/location/' + $env.GHL_LOCATION_ID + '/contacts/detail/' + $json.contact_id }}",
+        "otherOptions": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000005",
+      "name": "Alert sales (HOT)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        120
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GHL_API_BASE }}/contacts/{{ $('Normalise GHL payload').item.json.contact_id }}/workflow/{{ $env.GHL_NURTURE_WORKFLOW_ID }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "authorization",
+              "value": "=Bearer {{ $env.GHL_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "version",
+              "value": "2021-07-28"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ eventStartTime: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000006",
+      "name": "Start nurture workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        280
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "GHL Private Integration"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "c3000000-0000-4000-8000-000000000007",
+      "name": "No follow-up (COLD)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'accepted', route: $('Qualify lead').item.json.decision.route, score: $('Qualify lead').item.json.decision.lead_score, duplicate: $('Qualify lead').item.json.duplicate, correlation_id: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000008",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1000,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 502,
+        "responseBody": "={{ JSON.stringify({ status: 'failed', message: 'Qualification service unavailable', correlation_id: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "c3000000-0000-4000-8000-000000000009",
+      "name": "Respond 502",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "GHL contact webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalise GHL payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise GHL payload": {
+      "main": [
+        [
+          {
+            "node": "Qualify lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify lead": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 502",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "Alert sales (HOT)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Start nurture workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No follow-up (COLD)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert sales (HOT)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start nurture workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No follow-up (COLD)": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "portfolio-ai-integrations"
+  },
+  "tags": []
+}
