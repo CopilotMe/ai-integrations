@@ -1,0 +1,285 @@
+{
+  "name": "Inbound email → Operations Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "q": "-in:chats"
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Gmail: new email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -280,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_ME",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten Gmail's payload into the intake contract.\n// `external_id` is Gmail's own message id: it is what makes redelivery — after\n// a poll overlap, a workflow restart, or a manual re-run — a no-op rather than\n// a duplicate case.\nconst headers = Object.fromEntries(\n  ($json.payload?.headers ?? []).map((h) => [h.name.toLowerCase(), h.value]),\n);\n\nconst from = headers.from ?? '';\nconst match = /<([^>]+)>/.exec(from);\n\nreturn [{\n  json: {\n    external_id: $json.id,\n    source: 'n8n:gmail',\n    from_email: (match ? match[1] : from).trim().toLowerCase(),\n    from_name: from.replace(/<[^>]*>/, '').replace(/\"/g, '').trim() || undefined,\n    to_email: (headers.to ?? '').replace(/.*<|>.*/g, '').trim().toLowerCase(),\n    subject: headers.subject ?? '',\n    body: ($json.text ?? $json.snippet ?? '').slice(0, 50000),\n    received_at: new Date(Number($json.internalDate ?? Date.now())).toISOString(),\n    headers: {\n      'message-id': headers['message-id'] ?? '',\n      'in-reply-to': headers['in-reply-to'] ?? '',\n    },\n  },\n}];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Normalise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPS_API_URL }}/api/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "authorization",
+              "value": "=Bearer {{ $env.OPS_API_KEY }}"
+            },
+            {
+              "name": "idempotency-key",
+              "value": "={{ 'gmail-' + $json.external_id }}"
+            },
+            {
+              "name": "x-request-id",
+              "value": "={{ $execution.id }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "POST /v1/messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs-approval",
+              "leftValue": "={{ $json.state }}",
+              "rightValue": "pending_approval",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.OPS_REVIEW_CHANNEL }}",
+          "mode": "name"
+        },
+        "text": "={{ '🟠 Needs approval — ' + $json.decision.action.replace(/_/g, ' ') + ' (' + $json.decision.blast_radius + ' blast radius)\\n' + $json.classification.summary + '\\nHeld because: ' + ($json.decision.triggered[0]?.detail ?? $json.decision.decided_by) + '\\n' + $env.OPS_APP_URL + '/cases/' + $json.case_id }}",
+        "otherOptions": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Alert reviewers",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        180
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Normalise').item.json.external_id }}",
+        "labelIds": [
+          "={{ $env.OPS_HANDLED_LABEL_ID }}"
+        ]
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Label handled",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        700,
+        360
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_ME",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $env.OPS_ALERT_CHANNEL }}",
+          "mode": "name"
+        },
+        "text": "={{ '🔴 Intake failed after retries for Gmail message ' + $('Normalise').item.json.external_id + '\\n' + JSON.stringify($json.error ?? $json).slice(0, 500) }}",
+        "otherOptions": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "Alert on intake failure",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        480
+      ],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "REPLACE_ME",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail: new email": {
+      "main": [
+        [
+          {
+            "node": "Normalise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise": {
+      "main": [
+        [
+          {
+            "node": "POST /v1/messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /v1/messages": {
+      "main": [
+        [
+          {
+            "node": "Needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert on intake failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a human?": {
+      "main": [
+        [
+          {
+            "node": "Alert reviewers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label handled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert reviewers": {
+      "main": [
+        [
+          {
+            "node": "Label handled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "portfolio-ai-integrations"
+  },
+  "tags": []
+}
