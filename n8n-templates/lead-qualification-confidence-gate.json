@@ -1,0 +1,379 @@
+{
+  "name": "AI lead qualification with a confidence gate (Claude + deterministic routing)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qualify-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "d4000000-0000-4000-8000-000000000001",
+      "name": "Receive lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        340
+      ],
+      "webhookId": "d4000000-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten whatever your form or CRM posts into one text block for the model,\n// plus the raw fields for downstream nodes. Adjust the field names to your form.\nconst b = $json.body ?? $json;\n\nconst text = [\n  `Name: ${b.name ?? [b.first_name, b.last_name].filter(Boolean).join(' ') ?? 'not provided'}`,\n  `Email: ${b.email ?? 'not provided'}`,\n  `Company: ${b.company ?? b.companyName ?? 'not provided'}`,\n  `Employees: ${b.employees ?? 'not provided'}`,\n  `Budget: ${b.budget ?? 'not provided'}`,\n  '',\n  'Enquiry:',\n  '\"\"\"',\n  String(b.message ?? b.inquiry ?? b.notes ?? ''),\n  '\"\"\"',\n].join('\\n');\n\nif (!String(b.message ?? b.inquiry ?? b.notes ?? '').trim()) {\n  throw new Error('No enquiry text on the inbound lead — nothing to qualify.');\n}\n\nreturn [{ json: { leadText: text } }];"
+      },
+      "id": "d4000000-0000-4000-8000-000000000002",
+      "name": "Normalise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\"model\": \"claude-opus-5\", \"max_tokens\": 512, \"system\": \"You qualify inbound B2B leads. Return a structured assessment only.\\n\\nlead_score (0-100): how well this lead fits an ideal customer \\u2014 a real, concrete need plus the size and budget to act on it.\\n\\nconfidence (0-1): how much your READING of this enquiry can be relied on \\u2014 NOT how good the lead is. A short, vague or ambiguous message means low confidence even if you had to pick a score. This is used to decide whether a salesperson's time is spent, so report it honestly.\\n\\nJudge only what the enquiry says. Never invent budget, headcount or urgency.\", \"messages\": [{\"role\": \"user\", \"content\": $json.leadText}], \"output_config\": {\"effort\": \"low\", \"format\": {\"type\": \"json_schema\", \"schema\": {\"type\": \"object\", \"additionalProperties\": false, \"required\": [\"lead_score\", \"confidence\", \"reason\", \"industry\"], \"properties\": {\"lead_score\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 100}, \"confidence\": {\"type\": \"number\", \"minimum\": 0, \"maximum\": 1}, \"reason\": {\"type\": \"string\"}, \"industry\": {\"type\": \"string\"}}}}}}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "d4000000-0000-4000-8000-000000000003",
+      "name": "Claude: assess lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        340
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── Deterministic routing ────────────────────────────────────────────────────\n// The model proposed a score and a confidence. THIS node decides what happens.\n// Nothing above here can select a route on its own.\n\n// 1. Parse the Anthropic response.\n//    The Messages API returns { content: [ { type: 'text', text: '...' } ] }.\n//    Reading $json.lead_score directly is the classic mistake — it is undefined,\n//    every lead silently scores 0, and everything routes to low priority.\nconst block = ($json.content ?? []).find((b) => b.type === 'text');\nif (!block) throw new Error(`No text block in Claude response (stop_reason=${$json.stop_reason})`);\n\nlet a;\ntry {\n  a = JSON.parse(block.text);\n} catch (e) {\n  throw new Error(`Claude did not return valid JSON: ${block.text.slice(0, 200)}`);\n}\n\n// 2. Validate. Structured outputs make bad shapes rare, not impossible, and a\n//    missing field must fail loudly rather than default to zero.\nconst score = Number(a.lead_score);\nconst confidence = Number(a.confidence);\nif (!Number.isFinite(score) || !Number.isFinite(confidence)) {\n  throw new Error(`Missing lead_score or confidence: ${block.text.slice(0, 200)}`);\n}\n\n// 3. Thresholds — edit these, they are the whole business policy.\nconst HOT_SCORE = 80, HOT_CONFIDENCE = 0.80;\nconst WARM_SCORE = 50, WARM_CONFIDENCE = 0.70;\n\n// 4. Two gates, not one.\n//    A lead must clear BOTH the score and the confidence gate for its tier.\n//    Clearing the score but not the confidence drops it exactly ONE tier —\n//    never straight to archive.\n//\n//    Why the asymmetry: a sales call costs an hour of someone's time, a nurture\n//    sequence costs almost nothing, and archiving is the only irreversible\n//    outcome. So low confidence may block an escalation, but must never throw a\n//    lead away. That decision belongs to the score alone.\nlet route, appliedRule;\n\nif (score >= HOT_SCORE) {\n  if (confidence >= HOT_CONFIDENCE) {\n    route = 'hot';  appliedRule = 'hot_score_and_confidence';\n  } else {\n    route = 'warm'; appliedRule = 'hot_downgraded_low_confidence';\n  }\n} else if (score >= WARM_SCORE) {\n  if (confidence >= WARM_CONFIDENCE) {\n    route = 'warm'; appliedRule = 'warm_score_and_confidence';\n  } else {\n    route = 'cold'; appliedRule = 'warm_downgraded_low_confidence';\n  }\n} else {\n  route = 'cold';   appliedRule = 'score_below_warm_threshold';\n}\n\nreturn [{\n  json: {\n    route,\n    applied_rule: appliedRule,\n    lead_score: score,\n    confidence,\n    reason: a.reason ?? '',\n    industry: a.industry ?? 'Unknown',\n    next_action: route === 'hot' ? 'sales_call'\n               : route === 'warm' ? 'nurture_sequence' : 'archive',\n    lead: $('Receive lead').item.json.body ?? {},\n  },\n}];"
+      },
+      "id": "d4000000-0000-4000-8000-000000000004",
+      "name": "Deterministic routing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-hot",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "hot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "hot"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-warm",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "warm",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "warm"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r-cold",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "cold",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cold"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d4000000-0000-4000-8000-000000000005",
+      "name": "Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        560,
+        340
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4000000-0000-4000-8000-000000000006",
+      "name": "HOT → your sales action",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        800,
+        180
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4000000-0000-4000-8000-000000000007",
+      "name": "WARM → your nurture action",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        800,
+        340
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4000000-0000-4000-8000-000000000008",
+      "name": "COLD → archive",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        800,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ route: $json.route, lead_score: $json.lead_score, confidence: $json.confidence, applied_rule: $json.applied_rule, next_action: $json.next_action }) }}",
+        "options": {}
+      },
+      "id": "d4000000-0000-4000-8000-000000000009",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "width": 700,
+        "height": 280,
+        "color": 4,
+        "content": "## The idea: the model proposes, deterministic rules decide\n\nMost AI lead-qualification workflows let the model output \"hot / warm / cold\" and act on it directly. That is not reproducible: the same lead can classify differently between runs, and a model upgrade silently re-routes your whole funnel.\n\nHere Claude returns only a **score** and a **confidence**. The **Deterministic routing** Code node decides the route from those two numbers. Edit the thresholds there — that node is your business policy, and it is the only thing that chooses an outcome."
+      },
+      "id": "d4000000-0000-4000-8000-00000000000a",
+      "name": "Note a",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -340,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "width": 700,
+        "height": 300,
+        "color": 7,
+        "content": "## Two gates, not one — and why low confidence never archives\n\n**Score** says how good the lead looks. **Confidence** says how much the model's *reading* of the enquiry can be relied on. They are different questions, and only the second one tells you whether to spend a person's hour.\n\nA lead must clear **both** gates for its tier. Clearing the score but not the confidence drops it **exactly one tier — never straight to archive.**\n\nThat asymmetry is deliberate: a sales call costs an hour, a nurture sequence costs almost nothing, and archiving is the only outcome you cannot undo. So a score of 95 the model is 55% sure about goes to nurture, not to sales and not to the bin."
+      },
+      "id": "d4000000-0000-4000-8000-00000000000b",
+      "name": "Note b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        340,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "width": 440,
+        "height": 280,
+        "color": 3,
+        "content": "## Setup\n\n1. Add an **Anthropic** credential to this node (API key from console.anthropic.com).\n2. Point your form / CRM webhook at the **Receive lead** URL.\n3. Replace the three **NoOp** nodes with your own actions — HubSpot, GoHighLevel, Pipedrive, Slack, whatever you use.\n\nThe model is set to `claude-opus-5`. Swap it for `claude-sonnet-5` or `claude-haiku-4-5` in the request body if you want a cheaper run per lead — the routing logic is unchanged.\n\n**Note the parsing in the Code node.** The Messages API returns `content[0].text`, not your fields at the top level. Reading `$json.lead_score` directly is the mistake that makes every lead score 0."
+      },
+      "id": "d4000000-0000-4000-8000-00000000000c",
+      "name": "Note c",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        120,
+        20
+      ]
+    }
+  ],
+  "connections": {
+    "Receive lead": {
+      "main": [
+        [
+          {
+            "node": "Normalise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise": {
+      "main": [
+        [
+          {
+            "node": "Claude: assess lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: assess lead": {
+      "main": [
+        [
+          {
+            "node": "Deterministic routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic routing": {
+      "main": [
+        [
+          {
+            "node": "Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route": {
+      "main": [
+        [
+          {
+            "node": "HOT → your sales action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WARM → your nurture action",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "COLD → archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HOT → your sales action": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WARM → your nurture action": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "COLD → archive": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "portfolio-ai-integrations"
+  },
+  "tags": []
+}
